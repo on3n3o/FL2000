@@ -1,0 +1,8 @@
+sample/fltest
+src/*.cmd
+src/*.o
+src/*.ko
+src/Module.symvers
+src/fl2000.mod
+src/fl2000.mod.c
+src/modules.order
