@@ -1,4 +1,20 @@
-# Fresco Logic FL2000 Linux/Android kernel driver
+# Driver for FL2000
+
+> possible best answer https://stackoverflow.com/questions/24988164/c-fast-screenshots-in-linux-for-use-with-opencv/39781697
+
+1. Add Virtual1 display as said here https://unix.stackexchange.com/questions/378373/add-virtual-output-to-xorg
+2. Enable output on virtual1 as said here 
+
+Generate modeline and add to virtual1
+cvt $width $height $fps
+cvt 1280 1024 60
+xrandr --newmode "1280x1024_60.00" 109.00  1280 1368 1496 1712  1024 1027 1034 1063 -hsync +vsync
+xrandr --addmode VIRTUAL1 "1280x1024_60.00"
+# display will blink here, check display position in [Windows key] => displays
+# you can see display preview in OBS
+xrandr --output VIRTUAL1 --mode "1280x1024_60.00" 
+
+# Fresco Logic FL2000 Linux/Android kernel driver (ORIGINAL DESCRIPTION BELOW)
 
 ### 1. What is this?
 

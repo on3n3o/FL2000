@@ -1,3 +1,4 @@
+driver/driver
 sample/fltest
 src/*.cmd
 src/*.o
