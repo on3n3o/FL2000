@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string>
 
 #include <termios.h>
 #include <unistd.h>
@@ -15,6 +16,9 @@
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/Xmd.h> 
+#include <X11/Xatom.h>
+#include <jpeglib.h> //-ljpeg 
 #include <cstdint>
 #include <cstring>
 #include <vector>
@@ -345,6 +349,7 @@ exit:
 int _alloc_frame(int fd, struct test_alloc *phy_alloc, uint32_t size)
 {
 	int ret;
+	fprintf(stderr, "here?\n");
 
 	memset(phy_alloc, 0, sizeof(*phy_alloc));
 	phy_alloc->buffer_size = (uint64_t)size;
@@ -424,7 +429,7 @@ void test_display(int fd, uint32_t width, uint32_t height, uint32_t index)
 	// HERE LIES ALL THE MAGIC
 	//if (!init_frame_by_bmp_file(frame_buffer, width, height, index))
 	//{
-		init_frame_by_test_pattern(frame_buffer, width, height);
+	init_frame_by_test_pattern(frame_buffer, width, height);
 	//}
 
 	surface_info.buffer_length = width * height * 3;
@@ -659,6 +664,7 @@ void test_display_on_resolution(int fd, uint32_t width, uint32_t height)
 	do
 	{
 		int c;
+		fprintf(stderr, "here?\n");
 
 		if (!fl2000_is_connected())
 			break;
@@ -759,102 +765,186 @@ void test_display_on_resolution(int fd, uint32_t width, uint32_t height)
 exit:;
 }
 
+void ImageFromDisplay(std::vector<uint8_t> &Pixels, int &Width, int &Height, int &BitsPerPixel)
+{
+	Display *display = XOpenDisplay(nullptr);
+	Window root = DefaultRootWindow(display);
+
+	XWindowAttributes attributes = {0};
+	XGetWindowAttributes(display, root, &attributes);
+
+	Width = attributes.width;
+	Height = attributes.height;
+
+	XImage *img = XGetImage(display, root, 0, 0, Width, Height, AllPlanes, ZPixmap);
+	BitsPerPixel = img->bits_per_pixel;
+	Pixels.resize(Width * Height * 4);
+
+	memcpy(&Pixels[0], img->data, Pixels.size());
+
+	XDestroyImage(img);
+	XCloseDisplay(display);
+}
+
+void Save_XImage_to_JPG(XImage *image, std::string FileName, int Quality)
+{
+    FILE* outfile = fopen(FileName.c_str(), "wb");
+    if(outfile == NULL) return;
+
+    jpeg_compress_struct cinfo;
+    jpeg_error_mgr       jerr;
+
+    cinfo.err = jpeg_std_error(&jerr);
+    jpeg_create_compress(&cinfo);
+    jpeg_stdio_dest(&cinfo, outfile);
+
+    cinfo.image_width      = image->width;
+    cinfo.image_height     = image->height;
+    cinfo.input_components = image->bitmap_unit >> 3;
+    cinfo.in_color_space   = JCS_EXT_BGRX;
+
+    jpeg_set_defaults(&cinfo);
+    /*set the quality [0..100]  */
+    jpeg_set_quality(&cinfo, Quality, true);
+    jpeg_start_compress(&cinfo, true);
+
+    JSAMPROW row_pointer;          /* pointer to a single row */
+
+    while (cinfo.next_scanline < cinfo.image_height) 
+    {
+        row_pointer = (JSAMPROW) &image->data[cinfo.next_scanline*image->bytes_per_line];
+        jpeg_write_scanlines(&cinfo, &row_pointer, 1);
+    }
+    jpeg_finish_compress(&cinfo);
+
+    fclose(outfile);
+}
+
+void CopyDesktopImage(std::string sFilePath_Name)
+{  
+    Display *dis=XOpenDisplay(NULL);
+    Screen *scr = ScreenOfDisplay(dis, DefaultScreen(dis));
+    //Drawable drawable = XDefaultRootWindow(dis);
+    Drawable drawable = RootWindow(dis, 0);
+	
+    XImage *image = XGetImage(dis, drawable, 0, 0, scr->width, scr->height, AllPlanes, ZPixmap);
+    Save_XImage_to_JPG(image, sFilePath_Name.c_str(), 75);
+    XDestroyImage(image);
+
+    XCloseDisplay(dis); 
+}
+
+
 int main(int argc, char *argv[])
 {
-	int ch;
-	int fd;
-	int ioctl_ret;
+	CopyDesktopImage("./test.jpg");
 
-	if (geteuid() != 0)
-	{
-		fprintf(stderr, "need root privilege. try sudo %s\n", argv[0]);
-		return 1;
-	}
+	// -------------------------------------------
 
-	fd = open(FL2K_NAME, O_RDWR);
-	if (fd == -1)
-	{
-		fprintf(stderr, "fl2000 device not connected?\n");
-		return 1;
-	}
+	// int Width = 1280;
+	// int Height = 1024;
+	// int Bpp = 24;
+	// std::vector<std::uint8_t> Pixels;
 
-	ioctl_ret = ioctl(fd, IOCTL_FL2000_QUERY_MONITOR_INFO, &monitor_info);
-	if (ioctl_ret < 0)
-	{
-		fprintf(stderr, "IOCTL_FL2000_QUERY_MONITOR_INFO fails %d\n",
-				ioctl_ret);
-		goto exit;
-	}
+	// ImageFromDisplay(Pixels, Width, Height, Bpp);
+	// return 0;
 
-	if (monitor_info.monitor_flags.connected == 0)
-	{
-		fprintf(stderr, "no monitor connected to FL2000?\n");
-		goto exit;
-	}
+	// -------------------------------------------
 
-	if (argc < 2)
-	{
-	usage:
-		fprintf(stderr, "usage: %s mem_type [[width] [height]]\n"
-						"mem_type is 0..3\n",
-				argv[0]);
-		fprintf(stderr,
-				"eg1: to test with SURFACE_TYPE_VIRTUAL_FRAGMENTED_VOLATILE, type\n"
-				"%s 0\n",
-				argv[0]);
-		fprintf(stderr,
-				"eg2: to test without SURFACE_TYPE_VIRTUAL_FRAGMENTED_PERSISTENT, type\n"
-				"%s 1\n",
-				argv[0]);
-		fprintf(stderr,
-				"eg3: to test 1920x1080 with SURFACE_TYPE_VIRTUAL_FRAGMENTED_PERSISTENT, type\n"
-				"%s 1 1920 1080\n",
-				argv[0]);
-		goto exit;
-	}
+// 	int ch;
+// 	int fd;
+// 	int ioctl_ret;
 
-	if (argc >= 2)
-	{
-		switch (argv[1][0])
-		{
-		case '0':
-			mem_type = SURFACE_TYPE_VIRTUAL_FRAGMENTED_VOLATILE;
-			break;
-		case '1':
-			mem_type = SURFACE_TYPE_VIRTUAL_FRAGMENTED_PERSISTENT;
-			break;
-		case '2':
-			mem_type = SURFACE_TYPE_VIRTUAL_CONTIGUOUS;
-			break;
-		case '3':
-			mem_type = SURFACE_TYPE_PHYSICAL_CONTIGUOUS;
-			break;
-		}
-	}
+// 	if (geteuid() != 0)
+// 	{
+// 		fprintf(stderr, "need root privilege. try sudo %s\n", argv[0]);
+// 		return 1;
+// 	}
 
-	if (argc > 2 && argc < 4)
-		goto usage;
+// 	fd = open(FL2K_NAME, O_RDWR);
+// 	if (fd == -1)
+// 	{
+// 		fprintf(stderr, "fl2000 device not connected?\n");
+// 		return 1;
+// 	}
 
-	parse_edid();
+// 	ioctl_ret = ioctl(fd, IOCTL_FL2000_QUERY_MONITOR_INFO, &monitor_info);
+// 	if (ioctl_ret < 0)
+// 	{
+// 		fprintf(stderr, "IOCTL_FL2000_QUERY_MONITOR_INFO fails %d\n",
+// 				ioctl_ret);
+// 		goto exit;
+// 	}
 
-	if (argc >= 4)
-	{
-		int width, height;
+// 	if (monitor_info.monitor_flags.connected == 0)
+// 	{
+// 		fprintf(stderr, "no monitor connected to FL2000?\n");
+// 		goto exit;
+// 	}
 
-		width = atoi(argv[2]);
-		height = atoi(argv[3]);
-		if (width * height * 3 > MAX_FRAME_BUFFER_SIZE)
-		{
-			fprintf(stderr, "image (%d, %d) too large)\n",
-					width, height);
-			goto exit;
-		}
-		test_display_on_resolution(fd, width, height);
-	}
-	else
-		test_display_all(fd);
+// 	if (argc < 2)
+// 	{
+// 	usage:
+// 		fprintf(stderr, "usage: %s mem_type [[width] [height]]\n"
+// 						"mem_type is 0..3\n",
+// 				argv[0]);
+// 		fprintf(stderr,
+// 				"eg1: to test with SURFACE_TYPE_VIRTUAL_FRAGMENTED_VOLATILE, type\n"
+// 				"%s 0\n",
+// 				argv[0]);
+// 		fprintf(stderr,
+// 				"eg2: to test without SURFACE_TYPE_VIRTUAL_FRAGMENTED_PERSISTENT, type\n"
+// 				"%s 1\n",
+// 				argv[0]);
+// 		fprintf(stderr,
+// 				"eg3: to test 1920x1080 with SURFACE_TYPE_VIRTUAL_FRAGMENTED_PERSISTENT, type\n"
+// 				"%s 1 1920 1080\n",
+// 				argv[0]);
+// 		goto exit;
+// 	}
 
-exit:
-	close(fd);
-	return 0;
+// 	if (argc >= 2)
+// 	{
+// 		switch (argv[1][0])
+// 		{
+// 		case '0':
+// 			mem_type = SURFACE_TYPE_VIRTUAL_FRAGMENTED_VOLATILE;
+// 			break;
+// 		case '1':
+// 			mem_type = SURFACE_TYPE_VIRTUAL_FRAGMENTED_PERSISTENT;
+// 			break;
+// 		case '2':
+// 			mem_type = SURFACE_TYPE_VIRTUAL_CONTIGUOUS;
+// 			break;
+// 		case '3':
+// 			mem_type = SURFACE_TYPE_PHYSICAL_CONTIGUOUS;
+// 			break;
+// 		}
+// 	}
+
+// 	if (argc > 2 && argc < 4)
+// 		goto usage;
+
+// 	parse_edid();
+
+// 	if (argc >= 4)
+// 	{
+// 		int width, height;
+
+// 		width = atoi(argv[2]);
+// 		height = atoi(argv[3]);
+// 		if (width * height * 3 > MAX_FRAME_BUFFER_SIZE)
+// 		{
+// 			fprintf(stderr, "image (%d, %d) too large)\n",
+// 					width, height);
+// 			goto exit;
+// 		}
+// 		test_display_on_resolution(fd, width, height);
+// 	}
+// 	else
+// 		test_display_all(fd);
+
+// exit:
+// 	close(fd);
+// 	return 0;
 }

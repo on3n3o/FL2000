@@ -627,6 +627,8 @@ void test_display_on_resolution(int fd, uint32_t width, uint32_t height)
 	 */
 	index = 0;
 	do {
+		fprintf(stderr, "here?\n");
+
 		int c;
 
 		if (!fl2000_is_connected())
